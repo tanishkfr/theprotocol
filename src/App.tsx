@@ -94,9 +94,9 @@ export default function App() {
       setChatSession(chat);
       const response = await chat.sendMessage({ message: "Start Protocol" });
       handleModelResponse(response.text);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setMessages([{ role: 'model', content: '❌ CRITICAL ERROR: PROTOCOL INITIALIZATION FAILED.' }]);
+      setMessages([{ role: 'model', content: `❌ CRITICAL ERROR: PROTOCOL INITIALIZATION FAILED.\n\nDetails: ${error.message || String(error)}\n\nDid you add VITE_GEMINI_API_KEY to your Vercel Environment Variables and redeploy?` }]);
     } finally {
       setIsLoading(false);
     }
