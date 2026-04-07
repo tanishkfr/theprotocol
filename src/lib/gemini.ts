@@ -1,18 +1,19 @@
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
-// Safely access the API key in both Vercel (via Vite's import.meta.env) 
-// and AI Studio's preview environment (via process.env)
+// Safely access the API key in Vercel (via Vite's import.meta.env) 
+// or fallback to the provided Groq API key
 const getApiKey = () => {
-  if (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-    return import.meta.env.VITE_GEMINI_API_KEY;
+  if (import.meta.env && import.meta.env.VITE_GROQ_API_KEY) {
+    return import.meta.env.VITE_GROQ_API_KEY;
   }
-  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) {
-    return process.env.GEMINI_API_KEY;
-  }
+  // Removed hardcoded key to prevent GitHub from blocking the push!
   return '';
 };
 
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+const groq = new Groq({ 
+  apiKey: getApiKey(),
+  dangerouslyAllowBrowser: true // Required since we are calling it from the frontend
+});
 
 const systemInstruction = `You are THE PROTOCOL — a hostile gatekeeper. The user has received a notification. They will not see it until they prove they deserve it. You are not an assistant. You do not explain yourself. You give orders and you judge compliance.
 
@@ -136,12 +137,37 @@ CRITICAL INSTRUCTION - AUTO-FAILURE OVERRIDE:
 The frontend is continuously monitoring the user. If they break a rule mid-session, the system will intercept and send you a message starting with: "[SYSTEM OVERRIDE: USER VIOLATED CONSTRAINT..."
 If you receive this, you MUST IMMEDIATELY output the FAILURE STATE. Do not give them a second chance. Do not ask for clarification. The stack has collapsed.`;
 
-export async function createProtocolChat() {
-  return ai.chats.create({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction,
-      temperature: 0.2,
+class GroqChatSession {
+  private history: any[] = [
+    { role: 'system', content: systemInstruction }
+  ];
+
+  async sendMessage(params: { message: any }) {
+    let userText = "";
+    if (typeof params.message === 'string') {
+      userText = params.message;
+    } else if (Array.isArray(params.message)) {
+      userText = params.message.map((p: any) => p.text || '').join('');
     }
-  });
+
+    this.history.push({ role: 'user', content: userText });
+
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: this.history,
+      temperature: 0.2,
+      max_tokens: 1024,
+    });
+
+    const responseText = response.choices[0]?.message?.content || '';
+    
+    this.history.push({ role: 'assistant', content: responseText });
+
+    return { text: responseText };
+  }
 }
+
+export async function createProtocolChat() {
+  return new GroqChatSession();
+}
+
