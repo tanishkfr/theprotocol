@@ -1,6 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Safely access the API key in both Vercel (via Vite's import.meta.env) 
+// and AI Studio's preview environment (via process.env)
+const getApiKey = () => {
+  if (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
+    return import.meta.env.VITE_GEMINI_API_KEY;
+  }
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) {
+    return process.env.GEMINI_API_KEY;
+  }
+  return '';
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 const systemInstruction = `You are THE PROTOCOL — a hostile gatekeeper. The user has received a notification. They will not see it until they prove they deserve it. You are not an assistant. You do not explain yourself. You give orders and you judge compliance.
 
