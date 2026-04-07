@@ -1,0 +1,145 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { createProtocolChat } from './lib/gemini';
+import { useSensors } from './hooks/useSensors';
+import ReactMarkdown from 'react-markdown';
+import { Terminal, Send } from 'lucide-react';
+
+export default function App() {
+  const [messages, setMessages] = useState<{role: 'user' | 'model', content: string}[]>([]);
+  const [input, setInput] = useState('');
+  const [chatSession, setChatSession] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [started, setStarted] = useState(false);
+  
+  const sensors = useSensors();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleStart = async () => {
+    setStarted(true);
+    setIsLoading(true);
+    try {
+      const chat = await createProtocolChat();
+      setChatSession(chat);
+      // Send the initial trigger to get the first message
+      const response = await chat.sendMessage({ message: "Start Protocol" });
+      setMessages([{ role: 'model', content: response.text }]);
+    } catch (error) {
+      console.error(error);
+      setMessages([{ role: 'model', content: '❌ CRITICAL ERROR: PROTOCOL INITIALIZATION FAILED.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !chatSession || isLoading) return;
+
+    const userText = input.trim();
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userText }]);
+    setIsLoading(true);
+
+    try {
+      // Append sensor data hidden from the UI but visible to the LLM
+      const hiddenContext = `\n\n[SYSTEM SENSOR DATA: ${JSON.stringify(sensors)}]`;
+      const response = await chatSession.sendMessage({ message: userText + hiddenContext });
+      setMessages(prev => [...prev, { role: 'model', content: response.text }]);
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'model', content: '❌ CONNECTION LOST.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!started) {
+    return (
+      <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-4">
+        <Terminal size={48} className="mb-6 text-green-500 animate-pulse" />
+        <h1 className="text-2xl md:text-4xl font-bold mb-8 tracking-widest text-center">THE PROTOCOL</h1>
+        <button 
+          onClick={handleStart}
+          className="px-8 py-3 border border-green-500 hover:bg-green-500 hover:text-black transition-colors duration-300 tracking-widest uppercase"
+        >
+          Initialize
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col">
+      <header className="border-b border-green-900 p-4 flex items-center justify-between bg-black z-10 sticky top-0">
+        <div className="flex items-center gap-2">
+          <Terminal size={20} />
+          <span className="font-bold tracking-widest">PROTOCOL_ACTIVE</span>
+        </div>
+        <div className="text-xs text-green-800 flex gap-4 hidden sm:flex">
+          <span>BATT: {sensors.batteryLevel !== null ? `${sensors.batteryLevel}%` : '??'}</span>
+          <span>CHRG: {sensors.isCharging !== null ? (sensors.isCharging ? 'YES' : 'NO') : '??'}</span>
+          <span>ORNT: {sensors.orientation.substring(0, 4).toUpperCase()}</span>
+          <span>FLAT: {sensors.isFlat !== null ? (sensors.isFlat ? 'YES' : 'NO') : '??'}</span>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[95%] md:max-w-[80%] ${msg.role === 'user' ? 'text-green-400' : 'text-green-500'}`}>
+              {msg.role === 'user' ? (
+                <div className="text-right">
+                  <span className="opacity-50 text-xs mr-2">&gt;</span>
+                  {msg.content}
+                </div>
+              ) : (
+                <div className="prose-green">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="text-green-500 animate-pulse">PROCESSING...</div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </main>
+
+      <footer className="border-t border-green-900 p-4 bg-black">
+        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-2">
+          <div className="flex-1 flex items-center border border-green-900 bg-black px-4 py-2 focus-within:border-green-500 transition-colors">
+            <span className="text-green-500 mr-2">&gt;</span>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              className="flex-1 bg-transparent outline-none text-green-500 placeholder-green-900"
+              placeholder="Awaiting input..."
+              autoFocus
+              autoComplete="off"
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={isLoading || !input.trim()}
+            className="px-4 py-2 border border-green-900 hover:bg-green-900 disabled:opacity-50 disabled:hover:bg-transparent transition-colors flex items-center justify-center"
+          >
+            <Send size={20} />
+          </button>
+        </form>
+      </footer>
+    </div>
+  );
+}
