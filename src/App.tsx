@@ -7,9 +7,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createProtocolChat } from './lib/gemini';
 import { useSensors } from './hooks/useSensors';
 import ReactMarkdown from 'react-markdown';
-import { Terminal, Send, Battery, Smartphone, Activity, Wifi, WifiOff, EyeOff, MapPin, Sun } from 'lucide-react';
+import { Terminal, Send, ShieldAlert, Cpu, Activity, Lock, Smartphone, Wifi, Battery } from 'lucide-react';
 
 export default function App() {
+  const [isBooting, setIsBooting] = useState(true);
   const [messages, setMessages] = useState<{role: 'user' | 'model', content: string}[]>([]);
   const [input, setInput] = useState('');
   const [chatSession, setChatSession] = useState<any>(null);
@@ -20,6 +21,12 @@ export default function App() {
   
   const sensors = useSensors(started);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Splash Screen Sequence
+  useEffect(() => {
+    const timer = setTimeout(() => setIsBooting(false), 3500);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,92 +154,160 @@ export default function App() {
     }
   };
 
+  // 1. Splash Screen
+  if (isBooting) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono overflow-hidden">
+        <div className="text-orange-600 animate-glitch text-4xl font-black mb-4">1 UNREAD MESSAGE</div>
+        <div className="w-64 h-1 bg-zinc-900 overflow-hidden relative">
+          <div className="absolute top-0 left-0 h-full bg-orange-600 animate-progress"></div>
+        </div>
+        <div className="mt-4 text-[10px] text-zinc-500 uppercase tracking-[0.4em] animate-pulse">
+          Establishing Hostile Friction...
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Landing Page
   if (!started) {
     return (
-      <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-4">
-        <Terminal size={48} className="mb-6 text-green-500 animate-pulse" />
-        <h1 className="text-2xl md:text-4xl font-bold mb-8 tracking-widest text-center">THE PROTOCOL</h1>
-        <p className="max-w-md text-center text-green-800 mb-8 text-sm">
-          WARNING: This protocol requires absolute compliance. It will request access to your Motion, Battery, and Geolocation sensors. Do not lie to it. It will know.
-        </p>
-        <button 
-          onClick={handleStart}
-          className="px-8 py-3 border border-green-500 hover:bg-green-500 hover:text-black transition-colors duration-300 tracking-widest uppercase"
-        >
-          Grant Access & Initialize
-        </button>
+      <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-6 scanlines">
+        <div className="border-2 border-green-500 p-8 md:p-12 flex flex-col items-center gap-6 shadow-[0_0_20px_rgba(34,197,94,0.3)] max-w-lg w-full">
+          <Lock size={48} className="animate-pulse" />
+          <h1 className="text-3xl md:text-4xl font-black tracking-[0.2em] text-center uppercase">The Protocol</h1>
+          <p className="text-[10px] text-green-800 tracking-widest text-center uppercase leading-loose">
+            Encryption: Active<br/>
+            Friction Level: Maximum<br/>
+            Worthiness: Unverified
+          </p>
+          <button 
+            onClick={handleStart}
+            title="Begin the verification process"
+            className="w-full mt-4 px-8 py-4 border-2 border-green-500 hover:bg-green-500 hover:text-black transition-all duration-300 font-bold uppercase text-lg"
+          >
+            Initialize Entry
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col">
-      <header className="border-b border-green-900 p-4 flex items-center justify-between bg-black z-10 sticky top-0">
-        <div className="flex items-center gap-2">
-          <Terminal size={20} />
-          <span className="font-bold tracking-widest">PROTOCOL_ACTIVE</span>
+    <div className="fixed inset-0 bg-black text-green-500 font-mono flex flex-col lg:flex-row overflow-hidden scanlines">
+      {/* Mobile-Only Sensor Bar (Visible when sidebar is hidden) */}
+      <div className="lg:hidden shrink-0 flex justify-around items-center py-2 px-4 border-b border-green-900 bg-black/90 text-[10px] z-20">
+        <div className="flex items-center gap-1" title="Current battery level">
+          <Battery size={12} className={sensors.isCharging ? "text-green-400" : "text-green-800"} />
+          <span>{sensors.batteryLevel}%</span>
         </div>
-        <div className="text-xs text-green-800 flex flex-wrap gap-4 hidden sm:flex">
-          <span>BATT: {sensors.batteryLevel !== null ? `${sensors.batteryLevel}%` : '??'}</span>
-          <span>CHRG: {sensors.isCharging !== null ? (sensors.isCharging ? 'YES' : 'NO') : '??'}</span>
-          <span>ORNT: {sensors.orientation.substring(0, 4).toUpperCase()}</span>
-          <span>FLAT: {sensors.isFlat !== null ? (sensors.isFlat ? 'YES' : 'NO') : '??'}</span>
-          <span>NET: {sensors.isOnline ? 'ONLINE' : 'OFFLINE'}</span>
-          <span>MOVE: {sensors.isMoving ? 'YES' : 'NO'}</span>
-          <span>HIDE: {sensors.lastHiddenDuration.toFixed(1)}s</span>
-          <span>DIST: {sensors.distanceMoved !== null ? `${sensors.distanceMoved.toFixed(1)}m` : '??'}</span>
-          <span>LUM: {sensors.illuminance !== null ? `${sensors.illuminance}lx` : '??'}</span>
+        <div className="flex items-center gap-1" title="Device orientation">
+          <Smartphone size={12} className={sensors.isFlat ? "text-green-400" : "text-green-800"} />
+          <span>{sensors.orientation.toUpperCase().slice(0,4)}</span>
         </div>
-      </header>
+        <div className="flex items-center gap-1" title="Network connectivity">
+          <Wifi size={12} className={sensors.isOnline ? "text-green-400" : "text-red-500"} />
+          <span>{sensors.isOnline ? 'SECURE' : 'OFFLINE'}</span>
+        </div>
+      </div>
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[95%] md:max-w-[80%] ${msg.role === 'user' ? 'text-green-400' : 'text-green-500'}`}>
-              {msg.role === 'user' ? (
-                <div className="text-right">
-                  <span className="opacity-50 text-xs mr-2">&gt;</span>
-                  {msg.content}
+      {/* Desktop Sidebar (Rules & Stats) */}
+      <aside className="hidden lg:flex w-80 border-r border-green-900 bg-black/50 p-6 flex-col gap-8">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-xs text-green-800 font-bold tracking-widest uppercase">
+            <Activity size={14} /> Biometrics
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <StatusTile label="BATT" val={`${sensors.batteryLevel}%`} active={!!sensors.batteryLevel} title="Current battery level" />
+            <StatusTile label="CHRG" val={sensors.isCharging ? 'YES' : 'NO'} active={!!sensors.isCharging} title="Power source connection status" />
+            <StatusTile label="FLAT" val={sensors.isFlat ? 'YES' : 'NO'} active={!!sensors.isFlat} title="Gyroscope stability" />
+            <StatusTile label="MODE" val={sensors.orientation.toUpperCase()} active={true} title="Device orientation" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex items-center gap-2 text-xs text-green-800 font-bold tracking-widest uppercase mb-4">
+            <Cpu size={14} /> The Stack
+          </div>
+          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar text-[10px] space-y-2 opacity-60">
+            {activeConstraints.length === 0 ? (
+              <div className="italic">Awaiting first rule...</div>
+            ) : (
+              activeConstraints.map((constraint, idx) => (
+                <div key={idx} className="border border-green-900 p-2 uppercase flex items-center justify-between">
+                  <span>{constraint}</span>
+                  <span className="text-green-500 animate-pulse">ACTIVE</span>
                 </div>
-              ) : (
-                <div className="prose-green">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              )}
+              ))
+            )}
+          </div>
+        </div>
+        <div className="border-t border-green-900 pt-4">
+          <div className="text-[10px] text-green-800 mb-2">VERSION 3.1.0_PRO</div>
+          <div className="h-1 w-full bg-green-900">
+            <div className="h-full bg-green-500 shadow-[0_0_10px_green]" style={{width: `${Math.min(100, (activeConstraints.length / 15) * 100)}%`}}></div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Interface */}
+      <div className="flex-1 flex flex-col h-full relative min-w-0">
+        <header className="shrink-0 border-b border-green-900 p-4 flex items-center justify-between bg-black/80 backdrop-blur-md z-10">
+          <div className="flex items-center gap-2">
+            <ShieldAlert size={16} className="text-red-600 animate-pulse" />
+            <span className="font-bold tracking-widest text-xs uppercase">Protocol_v3.1</span>
+          </div>
+          <div className="text-[10px] text-green-800 animate-pulse">LIVE FEED // UPLINK SECURE</div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[95%] md:max-w-[80%] ${msg.role === 'user' ? 'bg-green-950/10 p-3 border-r-2 border-green-500 text-green-400' : 'text-green-500'}`}>
+                {msg.role === 'user' ? (
+                  <div className="text-right">
+                    <span className="text-[10px] block opacity-30 mb-1">USER_INPUT</span>
+                    {msg.content}
+                  </div>
+                ) : (
+                  <div className="prose prose-invert prose-xs text-green-500 leading-relaxed max-w-none">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="text-green-500 animate-pulse">PROCESSING...</div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </main>
+          ))}
+          {isLoading && <div className="text-[10px] animate-pulse tracking-widest text-green-800">PROCESSING...</div>}
+          <div ref={messagesEndRef} />
+        </main>
 
-      <footer className="border-t border-green-900 p-4 bg-black">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-2">
-          <div className="flex-1 flex items-center border border-green-900 bg-black px-4 py-2 focus-within:border-green-500 transition-colors">
-            <span className="text-green-500 mr-2">&gt;</span>
+        {/* Input area: Sticky at bottom, mobile-friendly padding */}
+        <footer className="shrink-0 p-4 bg-black border-t border-green-900/50 z-10">
+          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex items-center border border-green-900 bg-black/90 px-4 py-3 focus-within:border-green-500 transition-all shadow-2xl">
+            <span className="text-green-800 mr-2 text-xs">&gt;</span>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="flex-1 bg-transparent outline-none text-green-500 placeholder-green-900"
-              placeholder="Awaiting input..."
-              autoFocus
+              title="Enter your response here"
+              className="flex-1 bg-transparent outline-none text-green-500 text-sm placeholder-green-900"
+              placeholder="Submit proof..."
               autoComplete="off"
             />
-          </div>
-          <button 
-            type="submit" 
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2 border border-green-900 hover:bg-green-900 disabled:opacity-50 disabled:hover:bg-transparent transition-colors flex items-center justify-center"
-          >
-            <Send size={20} />
-          </button>
-        </form>
-      </footer>
+            <button type="submit" disabled={isLoading || !input.trim()} title="Transmit message" className="ml-2 text-green-500 disabled:opacity-20 hover:text-green-400 transition-colors">
+              <Send size={18} />
+            </button>
+          </form>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function StatusTile({ label, val, active, title }: { label: string, val: string, active: boolean, title?: string }) {
+  return (
+    <div title={title} className={`p-2 border ${active ? 'border-green-800 text-green-500' : 'border-zinc-900 text-zinc-700'} text-[10px]`}>
+      <div className="opacity-40 mb-1">{label}</div>
+      <div className="font-bold truncate">{val}</div>
     </div>
   );
 }

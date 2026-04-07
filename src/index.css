@@ -1,6 +1,33 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
+.scanlines {
+  position: relative;
+  overflow: hidden;
+}
+.scanlines::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+              linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 2;
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none;
+}
+
+/* Custom scrollbar to keep the green theme */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #000;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #065f46;
+}
+
 @theme {
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
@@ -43,4 +70,36 @@ body {
   padding: 1rem;
   overflow-x: auto;
   margin-bottom: 1rem;
+}
+
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+@keyframes glitch {
+  0% { transform: translate(0); text-shadow: -2px 0 red, 2px 0 blue; }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); text-shadow: 2px 0 red, -2px 0 blue; }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.animate-progress {
+  animation: progress 3s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.animate-glitch {
+  animation: glitch 0.3s infinite;
+}
+
+/* Mobile-Specific Tweaks */
+@media (max-width: 640px) {
+  /* Prevent the keyboard from breaking the fixed layout */
+  .fixed {
+    position: fixed;
+    height: 100%;
+    width: 100%;
+  }
 }
