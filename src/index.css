@@ -2,8 +2,7 @@
 @import "tailwindcss";
 
 .scanlines {
-  position: relative;
-  overflow: hidden;
+  /* position: relative; removed because it overrides Tailwind's 'fixed' class */
 }
 .scanlines::after {
   content: " ";
