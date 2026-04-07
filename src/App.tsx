@@ -15,23 +15,89 @@ export default function App() {
   const [chatSession, setChatSession] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [started, setStarted] = useState(false);
+  const [activeConstraints, setActiveConstraints] = useState<string[]>([]);
+  const [mode, setMode] = useState<'REGULAR' | 'AI' | null>(null);
   
-  const sensors = useSensors();
+  const sensors = useSensors(started);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Continuous Polling for Auto-Failure
+  useEffect(() => {
+    if (!started || isLoading || activeConstraints.length === 0 || !chatSession) return;
+
+    const checkInterval = setInterval(() => {
+      let violated = null;
+      
+      if (activeConstraints.includes('landscape') && sensors.orientation === 'portrait') violated = 'landscape';
+      if (activeConstraints.includes('charging') && sensors.isCharging === false) violated = 'charging';
+      if (activeConstraints.includes('not_charging') && sensors.isCharging === true) violated = 'not_charging';
+      if (activeConstraints.includes('flat') && sensors.isFlat === false) violated = 'flat';
+      if (activeConstraints.includes('dark') && sensors.isDark === false) violated = 'dark';
+      if (activeConstraints.includes('humming') && sensors.isHumming === false) violated = 'humming';
+      if (activeConstraints.includes('silent') && sensors.isSilent === false) violated = 'silent';
+      if (activeConstraints.includes('still') && sensors.isMoving === true) violated = 'still';
+      
+      if (activeConstraints.includes('battery_below_80') && sensors.batteryLevel !== null && sensors.batteryLevel >= 80) violated = 'battery_below_80';
+      if (activeConstraints.includes('battery_40_45') && sensors.batteryLevel !== null && (sensors.batteryLevel < 40 || sensors.batteryLevel > 45)) violated = 'battery_40_45';
+
+      if (activeConstraints.includes('rhythm')) {
+        const timeSinceLastTap = Date.now() - sensors.lastTapTime;
+        if (timeSinceLastTap > 1500) violated = 'rhythm (too slow or stopped)';
+      }
+
+      if (violated) {
+        clearInterval(checkInterval);
+        triggerAutoFailure(violated);
+      }
+    }, 500);
+
+    return () => clearInterval(checkInterval);
+  }, [sensors, activeConstraints, started, isLoading, chatSession]);
+
+  const triggerAutoFailure = async (reason: string) => {
+    setIsLoading(true);
+    try {
+      const response = await chatSession.sendMessage({ message: `[SYSTEM OVERRIDE: USER VIOLATED CONSTRAINT '${reason}'. TRIGGER FAILURE STATE IMMEDIATELY.]` });
+      handleModelResponse(response.text);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleModelResponse = (text: string) => {
+    const constraintsMatch = text.match(/\[CONSTRAINTS:\s*(.*?)\]/);
+    if (constraintsMatch) {
+      const parsed = constraintsMatch[1].split(',').map(s => s.trim().toLowerCase()).filter(s => s && s !== 'none');
+      setActiveConstraints(parsed);
+    } else if (text.includes('❌ RULE') && text.includes('VIOLATED')) {
+      setActiveConstraints([]); // Reset on failure
+    }
+    
+    const cleanText = text.replace(/\[CONSTRAINTS:\s*(.*?)\]/g, '').trim();
+    setMessages(prev => [...prev, { role: 'model', content: cleanText }]);
+  };
+
   const handleStart = async () => {
+    // Request iOS permissions if needed
+    if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      try {
+        await (DeviceOrientationEvent as any).requestPermission();
+      } catch (e) { console.error(e); }
+    }
+    
     setStarted(true);
     setIsLoading(true);
     try {
       const chat = await createProtocolChat();
       setChatSession(chat);
-      // Send the initial trigger to get the first message
       const response = await chat.sendMessage({ message: "Start Protocol" });
-      setMessages([{ role: 'model', content: response.text }]);
+      handleModelResponse(response.text);
     } catch (error) {
       console.error(error);
       setMessages([{ role: 'model', content: '❌ CRITICAL ERROR: PROTOCOL INITIALIZATION FAILED.' }]);
@@ -49,11 +115,47 @@ export default function App() {
     setMessages(prev => [...prev, { role: 'user', content: userText }]);
     setIsLoading(true);
 
+    let currentMode = mode;
+    if (!currentMode) {
+      if (userText === '1') currentMode = 'REGULAR';
+      if (userText === '2') currentMode = 'AI';
+      setMode(currentMode);
+    } else if (activeConstraints.length === 0 && userText.toUpperCase() === 'Y') {
+      currentMode = null;
+      setMode(null);
+    }
+
     try {
-      // Append sensor data hidden from the UI but visible to the LLM
-      const hiddenContext = `\n\n[SYSTEM SENSOR DATA: ${JSON.stringify(sensors)}]`;
-      const response = await chatSession.sendMessage({ message: userText + hiddenContext });
-      setMessages(prev => [...prev, { role: 'model', content: response.text }]);
+      let hiddenContext = `\n\n[SYSTEM SENSOR DATA: ${JSON.stringify({
+        orientation: sensors.orientation,
+        batteryLevel: sensors.batteryLevel,
+        isCharging: sensors.isCharging,
+        isFlat: sensors.isFlat,
+        isDark: sensors.isDark,
+        isHumming: sensors.isHumming,
+        isSilent: sensors.isSilent,
+        isMoving: sensors.isMoving
+      })}]`;
+
+      if (currentMode === 'AI') {
+        hiddenContext += `\n[SYSTEM DIRECTIVE - AI MODE ACTIVE: Verify compliance with current rules. If compliant, generate the NEXT STAGE. Current active constraints: [${activeConstraints.length > 0 ? activeConstraints.join(', ') : 'none'}]. You MUST generate a new rule that conflicts with or complicates this specific stack. Output the updated [CONSTRAINTS: ...] block at the end.]`;
+      }
+
+      const parts: any[] = [{ text: userText + hiddenContext }];
+      
+      // Attach camera frame if available for visual verification
+      if (sensors.cameraFrameBase64) {
+        const base64Data = sensors.cameraFrameBase64.split(',')[1];
+        parts.push({
+          inlineData: {
+            data: base64Data,
+            mimeType: 'image/jpeg'
+          }
+        });
+      }
+
+      const response = await chatSession.sendMessage({ message: parts });
+      handleModelResponse(response.text);
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { role: 'model', content: '❌ CONNECTION LOST.' }]);
@@ -67,11 +169,14 @@ export default function App() {
       <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-4">
         <Terminal size={48} className="mb-6 text-green-500 animate-pulse" />
         <h1 className="text-2xl md:text-4xl font-bold mb-8 tracking-widest text-center">THE PROTOCOL</h1>
+        <p className="max-w-md text-center text-green-800 mb-8 text-sm">
+          WARNING: This protocol requires absolute compliance. It will request access to your Camera, Microphone, and Motion sensors. Do not lie to it. It will know.
+        </p>
         <button 
           onClick={handleStart}
           className="px-8 py-3 border border-green-500 hover:bg-green-500 hover:text-black transition-colors duration-300 tracking-widest uppercase"
         >
-          Initialize
+          Grant Access & Initialize
         </button>
       </div>
     );
@@ -89,6 +194,8 @@ export default function App() {
           <span>CHRG: {sensors.isCharging !== null ? (sensors.isCharging ? 'YES' : 'NO') : '??'}</span>
           <span>ORNT: {sensors.orientation.substring(0, 4).toUpperCase()}</span>
           <span>FLAT: {sensors.isFlat !== null ? (sensors.isFlat ? 'YES' : 'NO') : '??'}</span>
+          <span>DARK: {sensors.isDark !== null ? (sensors.isDark ? 'YES' : 'NO') : '??'}</span>
+          <span>HUM: {sensors.isHumming !== null ? (sensors.isHumming ? 'YES' : 'NO') : '??'}</span>
         </div>
       </header>
 

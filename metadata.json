@@ -1,5 +1,5 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": []
+  "name": "The Protocol",
+  "description": "A hostile, sensor-driven challenge game that tests your compliance through physical constraints.",
+  "requestFramePermissions": ["camera", "microphone"]
 }
