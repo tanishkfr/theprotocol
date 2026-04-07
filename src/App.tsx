@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createProtocolChat } from './lib/gemini';
 import { useSensors } from './hooks/useSensors';
 import ReactMarkdown from 'react-markdown';
-import { Terminal, Send } from 'lucide-react';
+import { Terminal, Send, Battery, Smartphone, Activity, Wifi, WifiOff, EyeOff, MapPin, Sun } from 'lucide-react';
 
 export default function App() {
   const [messages, setMessages] = useState<{role: 'user' | 'model', content: string}[]>([]);
@@ -34,20 +34,9 @@ export default function App() {
       
       if (activeConstraints.includes('landscape') && sensors.orientation === 'portrait') violated = 'landscape';
       if (activeConstraints.includes('charging') && sensors.isCharging === false) violated = 'charging';
-      if (activeConstraints.includes('not_charging') && sensors.isCharging === true) violated = 'not_charging';
       if (activeConstraints.includes('flat') && sensors.isFlat === false) violated = 'flat';
-      if (activeConstraints.includes('dark') && sensors.isDark === false) violated = 'dark';
-      if (activeConstraints.includes('humming') && sensors.isHumming === false) violated = 'humming';
-      if (activeConstraints.includes('silent') && sensors.isSilent === false) violated = 'silent';
-      if (activeConstraints.includes('still') && sensors.isMoving === true) violated = 'still';
-      
-      if (activeConstraints.includes('battery_below_80') && sensors.batteryLevel !== null && sensors.batteryLevel >= 80) violated = 'battery_below_80';
-      if (activeConstraints.includes('battery_40_45') && sensors.batteryLevel !== null && (sensors.batteryLevel < 40 || sensors.batteryLevel > 45)) violated = 'battery_40_45';
-
-      if (activeConstraints.includes('rhythm')) {
-        const timeSinceLastTap = Date.now() - sensors.lastTapTime;
-        if (timeSinceLastTap > 1500) violated = 'rhythm (too slow or stopped)';
-      }
+      if (activeConstraints.includes('online') && sensors.isOnline === false) violated = 'online';
+      if (activeConstraints.includes('anchor') && sensors.distanceMoved !== null && sensors.distanceMoved > 10) violated = 'anchor';
 
       if (violated) {
         clearInterval(checkInterval);
@@ -127,14 +116,19 @@ export default function App() {
 
     try {
       let hiddenContext = `\n\n[SYSTEM SENSOR DATA: ${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        seconds: new Date().getSeconds(),
         orientation: sensors.orientation,
         batteryLevel: sensors.batteryLevel,
         isCharging: sensors.isCharging,
         isFlat: sensors.isFlat,
-        isDark: sensors.isDark,
-        isHumming: sensors.isHumming,
-        isSilent: sensors.isSilent,
-        isMoving: sensors.isMoving
+        isMoving: sensors.isMoving,
+        isOnline: sensors.isOnline,
+        offlineCount: sensors.offlineCount,
+        lastHiddenDuration: sensors.lastHiddenDuration,
+        recentTaps: sensors.recentTaps,
+        distanceMoved: sensors.distanceMoved,
+        illuminance: sensors.illuminance
       })}]`;
 
       if (currentMode === 'AI') {
@@ -142,17 +136,6 @@ export default function App() {
       }
 
       const parts: any[] = [{ text: userText + hiddenContext }];
-      
-      // Attach camera frame if available for visual verification
-      if (sensors.cameraFrameBase64) {
-        const base64Data = sensors.cameraFrameBase64.split(',')[1];
-        parts.push({
-          inlineData: {
-            data: base64Data,
-            mimeType: 'image/jpeg'
-          }
-        });
-      }
 
       const response = await chatSession.sendMessage({ message: parts });
       handleModelResponse(response.text);
@@ -170,7 +153,7 @@ export default function App() {
         <Terminal size={48} className="mb-6 text-green-500 animate-pulse" />
         <h1 className="text-2xl md:text-4xl font-bold mb-8 tracking-widest text-center">THE PROTOCOL</h1>
         <p className="max-w-md text-center text-green-800 mb-8 text-sm">
-          WARNING: This protocol requires absolute compliance. It will request access to your Camera, Microphone, and Motion sensors. Do not lie to it. It will know.
+          WARNING: This protocol requires absolute compliance. It will request access to your Motion, Battery, and Geolocation sensors. Do not lie to it. It will know.
         </p>
         <button 
           onClick={handleStart}
@@ -189,13 +172,16 @@ export default function App() {
           <Terminal size={20} />
           <span className="font-bold tracking-widest">PROTOCOL_ACTIVE</span>
         </div>
-        <div className="text-xs text-green-800 flex gap-4 hidden sm:flex">
+        <div className="text-xs text-green-800 flex flex-wrap gap-4 hidden sm:flex">
           <span>BATT: {sensors.batteryLevel !== null ? `${sensors.batteryLevel}%` : '??'}</span>
           <span>CHRG: {sensors.isCharging !== null ? (sensors.isCharging ? 'YES' : 'NO') : '??'}</span>
           <span>ORNT: {sensors.orientation.substring(0, 4).toUpperCase()}</span>
           <span>FLAT: {sensors.isFlat !== null ? (sensors.isFlat ? 'YES' : 'NO') : '??'}</span>
-          <span>DARK: {sensors.isDark !== null ? (sensors.isDark ? 'YES' : 'NO') : '??'}</span>
-          <span>HUM: {sensors.isHumming !== null ? (sensors.isHumming ? 'YES' : 'NO') : '??'}</span>
+          <span>NET: {sensors.isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          <span>MOVE: {sensors.isMoving ? 'YES' : 'NO'}</span>
+          <span>HIDE: {sensors.lastHiddenDuration.toFixed(1)}s</span>
+          <span>DIST: {sensors.distanceMoved !== null ? `${sensors.distanceMoved.toFixed(1)}m` : '??'}</span>
+          <span>LUM: {sensors.illuminance !== null ? `${sensors.illuminance}lx` : '??'}</span>
         </div>
       </header>
 

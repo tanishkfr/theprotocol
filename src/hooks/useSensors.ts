@@ -5,12 +5,28 @@ export interface SensorData {
   batteryLevel: number | null;
   isCharging: boolean | null;
   isFlat: boolean | null;
-  isDark: boolean | null;
-  isHumming: boolean | null;
-  isSilent: boolean | null;
-  isMoving: boolean | null;
-  lastTapTime: number;
-  cameraFrameBase64: string | null;
+  isMoving: boolean;
+  isOnline: boolean;
+  offlineCount: number;
+  lastHiddenDuration: number;
+  recentTaps: number;
+  distanceMoved: number | null;
+  illuminance: number | null;
+}
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3; // metres
+  const phi1 = lat1 * Math.PI/180;
+  const phi2 = lat2 * Math.PI/180;
+  const deltaPhi = (lat2-lat1) * Math.PI/180;
+  const deltaLambda = (lon2-lon1) * Math.PI/180;
+
+  const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
 }
 
 export function useSensors(isActive: boolean): SensorData {
@@ -19,19 +35,16 @@ export function useSensors(isActive: boolean): SensorData {
     batteryLevel: null,
     isCharging: null,
     isFlat: null,
-    isDark: null,
-    isHumming: null,
-    isSilent: null,
-    isMoving: null,
-    lastTapTime: 0,
-    cameraFrameBase64: null,
+    isMoving: false,
+    isOnline: navigator.onLine,
+    offlineCount: 0,
+    lastHiddenDuration: 0,
+    recentTaps: 0,
+    distanceMoved: null,
+    illuminance: null,
   });
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number>(0);
+  const tapTimes = useRef<number[]>([]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -61,7 +74,7 @@ export function useSensors(isActive: boolean): SensorData {
       });
     }
 
-    // 3. Device Orientation (Flatness) & Motion (Stillness)
+    // 3. Device Orientation (Flatness)
     const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
       const { beta, gamma } = event;
       if (beta !== null && gamma !== null) {
@@ -69,105 +82,88 @@ export function useSensors(isActive: boolean): SensorData {
         setSensors(s => ({ ...s, isFlat }));
       }
     };
+    window.addEventListener('deviceorientation', handleDeviceOrientation);
 
-    const handleDeviceMotion = (event: DeviceMotionEvent) => {
+    // 4. Device Motion (Shaking)
+    let moveTimeout: any;
+    const handleMotion = (event: DeviceMotionEvent) => {
       const acc = event.acceleration;
-      if (acc && acc.x !== null && acc.y !== null && acc.z !== null) {
-        const totalMotion = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-        setSensors(s => ({ ...s, isMoving: totalMotion > 1.5 }));
+      if (acc && (Math.abs(acc.x || 0) > 15 || Math.abs(acc.y || 0) > 15 || Math.abs(acc.z || 0) > 15)) {
+        setSensors(s => ({ ...s, isMoving: true }));
+        clearTimeout(moveTimeout);
+        moveTimeout = setTimeout(() => setSensors(s => ({ ...s, isMoving: false })), 1000);
       }
     };
+    window.addEventListener('devicemotion', handleMotion);
 
-    window.addEventListener('deviceorientation', handleDeviceOrientation);
-    window.addEventListener('devicemotion', handleDeviceMotion);
+    // 5. Online Status
+    const handleOffline = () => setSensors(s => ({ ...s, isOnline: false, offlineCount: s.offlineCount + 1 }));
+    const handleOnline = () => setSensors(s => ({ ...s, isOnline: true }));
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
 
-    // 4. Rhythm (Taps)
+    // 6. Visibility (Ghost)
+    let hiddenStartTime = 0;
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenStartTime = Date.now();
+      } else {
+        if (hiddenStartTime > 0) {
+          const duration = (Date.now() - hiddenStartTime) / 1000;
+          setSensors(s => ({ ...s, lastHiddenDuration: duration }));
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 7. Taps (Sequence)
     const handleTap = () => {
-      setSensors(s => ({ ...s, lastTapTime: Date.now() }));
+      const now = Date.now();
+      tapTimes.current.push(now);
+      tapTimes.current = tapTimes.current.filter(t => now - t <= 2000);
+      setSensors(s => ({ ...s, recentTaps: tapTimes.current.length }));
     };
     window.addEventListener('touchstart', handleTap);
     window.addEventListener('click', handleTap);
 
-    // 5. A/V Setup (Camera & Mic)
-    const setupAV = async () => {
+    // 8. Geolocation (Anchor)
+    let initialCoords: GeolocationCoordinates | null = null;
+    let watchId: number | null = null;
+    if ('geolocation' in navigator) {
+      watchId = navigator.geolocation.watchPosition((pos) => {
+        if (!initialCoords) {
+          initialCoords = pos.coords;
+          setSensors(s => ({ ...s, distanceMoved: 0 }));
+        } else {
+          const dist = calculateDistance(initialCoords.latitude, initialCoords.longitude, pos.coords.latitude, pos.coords.longitude);
+          setSensors(s => ({ ...s, distanceMoved: dist }));
+        }
+      }, console.error, { enableHighAccuracy: true });
+    }
+
+    // 9. Light Sensor (Proximity fallback)
+    if ('AmbientLightSensor' in window) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
-        
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.play();
-        videoRef.current = video;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 64; canvas.height = 64;
-        canvasRef.current = canvas;
-
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        audioCtxRef.current = audioCtx;
-        analyserRef.current = analyser;
-
-        const pollAV = () => {
-          if (videoRef.current && canvasRef.current) {
-            const ctx = canvasRef.current.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(videoRef.current, 0, 0, 64, 64);
-              const frameData = canvasRef.current.toDataURL('image/jpeg', 0.5);
-              
-              const imgData = ctx.getImageData(0, 0, 64, 64).data;
-              let sum = 0;
-              for (let i = 0; i < imgData.length; i += 4) {
-                sum += (imgData[i] + imgData[i+1] + imgData[i+2]) / 3;
-              }
-              const avgBrightness = sum / (imgData.length / 4);
-              
-              setSensors(s => ({ 
-                ...s, 
-                isDark: avgBrightness < 15,
-                cameraFrameBase64: frameData
-              }));
-            }
-          }
-
-          if (analyserRef.current) {
-            const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-            analyserRef.current.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-            const avgVolume = sum / dataArray.length;
-
-            setSensors(s => ({
-              ...s,
-              isHumming: avgVolume > 30,
-              isSilent: avgVolume < 10
-            }));
-          }
-
-          animationFrameRef.current = requestAnimationFrame(pollAV);
-        };
-        pollAV();
-
-      } catch (err) {
-        console.error("A/V Permission denied", err);
-      }
-    };
-    setupAV();
+        const sensor = new (window as any).AmbientLightSensor();
+        sensor.addEventListener('reading', () => {
+          setSensors(s => ({ ...s, illuminance: sensor.illuminance }));
+        });
+        sensor.start();
+      } catch (e) { console.error("Light sensor not available", e); }
+    }
 
     return () => {
       window.removeEventListener('orientationchange', updateOrientation);
       window.screen?.orientation?.removeEventListener('change', updateOrientation);
       window.removeEventListener('deviceorientation', handleDeviceOrientation);
-      window.removeEventListener('devicemotion', handleDeviceMotion);
+      window.removeEventListener('devicemotion', handleMotion);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('touchstart', handleTap);
       window.removeEventListener('click', handleTap);
-      cancelAnimationFrame(animationFrameRef.current);
-      if (audioCtxRef.current) audioCtxRef.current.close();
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      }
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearTimeout(moveTimeout);
     };
   }, [isActive]);
 
