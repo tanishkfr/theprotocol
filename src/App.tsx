@@ -17,7 +17,9 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [started, setStarted] = useState(false);
   const [activeConstraints, setActiveConstraints] = useState<string[]>([]);
+  const [activeRules, setActiveRules] = useState<string[]>([]);
   const [mode, setMode] = useState<'REGULAR' | 'AI' | null>(null);
+  const [isGlitching, setIsGlitching] = useState(false);
   
   const sensors = useSensors(started);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -74,8 +76,16 @@ export default function App() {
     } else if (text.includes('❌ RULE') && text.includes('VIOLATED')) {
       setActiveConstraints([]); // Reset on failure
     }
+
+    const rulesMatch = text.match(/\[RULES:\s*(.*?)\]/);
+    if (rulesMatch) {
+      const parsedRules = rulesMatch[1].split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'none');
+      setActiveRules(parsedRules);
+    } else if (text.includes('❌ RULE') && text.includes('VIOLATED')) {
+      setActiveRules([]);
+    }
     
-    const cleanText = text.replace(/\[CONSTRAINTS:\s*(.*?)\]/g, '').trim();
+    const cleanText = text.replace(/\[CONSTRAINTS:\s*(.*?)\]/g, '').replace(/\[RULES:\s*(.*?)\]/g, '').trim();
     setMessages(prev => [...prev, { role: 'model', content: cleanText }]);
   };
 
@@ -148,7 +158,9 @@ export default function App() {
       handleModelResponse(response.text);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { role: 'model', content: '❌ CONNECTION LOST.' }]);
+      setIsGlitching(true);
+      setTimeout(() => setIsGlitching(false), 2000);
+      setMessages(prev => [...prev, { role: 'model', content: '### ⚠️ FATAL EXCEPTION\n\n> **UPLINK SEVERED.**\n> **HOSTILE INTERFERENCE DETECTED.**\n\n*The Protocol has rejected your connection.*' }]);
     } finally {
       setIsLoading(false);
     }
@@ -157,13 +169,20 @@ export default function App() {
   // 1. Splash Screen
   if (isBooting) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono overflow-hidden">
-        <div className="text-orange-600 animate-glitch text-4xl font-black mb-4">1 UNREAD MESSAGE</div>
-        <div className="w-64 h-1 bg-zinc-900 overflow-hidden relative">
-          <div className="absolute top-0 left-0 h-full bg-orange-600 animate-progress"></div>
-        </div>
-        <div className="mt-4 text-[10px] text-zinc-500 uppercase tracking-[0.4em] animate-pulse">
-          Establishing Hostile Friction...
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono overflow-hidden p-6">
+        <div className="flex flex-col items-center gap-8">
+          <div className="relative flex items-center justify-center w-16 h-16">
+            <div className="absolute inset-0 border border-green-500/30 rounded-full animate-ping"></div>
+            <div className="absolute inset-2 border border-green-500/50 rounded-full animate-pulse"></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+          </div>
+          <div className="text-center space-y-3">
+            <div className="text-green-400 text-xl md:text-2xl tracking-[0.3em] font-light">1 UNREAD MESSAGE</div>
+            <div className="text-green-600 text-xs tracking-[0.4em] uppercase">Establishing secure connection...</div>
+          </div>
+          <div className="w-48 h-[1px] bg-green-900/50 overflow-hidden relative mt-4">
+            <div className="absolute top-0 left-0 h-full bg-green-500 animate-progress"></div>
+          </div>
         </div>
       </div>
     );
@@ -173,18 +192,34 @@ export default function App() {
   if (!started) {
     return (
       <div className="min-h-screen bg-black text-green-500 font-mono flex flex-col items-center justify-center p-6 scanlines">
-        <div className="border-2 border-green-500 p-8 md:p-12 flex flex-col items-center gap-6 shadow-[0_0_20px_rgba(34,197,94,0.3)] max-w-lg w-full">
-          <Lock size={48} className="animate-pulse" />
-          <h1 className="text-3xl md:text-4xl font-black tracking-[0.2em] text-center uppercase">The Protocol</h1>
-          <p className="text-[10px] text-green-800 tracking-widest text-center uppercase leading-loose">
-            Encryption: Active<br/>
-            Friction Level: Maximum<br/>
-            Worthiness: Unverified
-          </p>
+        <div className="max-w-md w-full flex flex-col items-center gap-8">
+          <div className="w-16 h-16 border border-green-500/30 flex items-center justify-center bg-green-950/20 rounded-sm">
+            <Lock size={24} className="text-green-500" />
+          </div>
+          
+          <div className="text-center space-y-6 w-full">
+            <div className="space-y-2">
+              <h1 className="text-2xl md:text-3xl tracking-[0.3em] uppercase font-light text-green-400">The Protocol</h1>
+              <p className="text-[10px] text-green-600 tracking-widest uppercase">Hostile Gatekeeper System</p>
+            </div>
+            
+            <div className="border border-green-900/50 bg-black p-6 text-left space-y-4 rounded-sm shadow-[0_0_15px_rgba(34,197,94,0.05)]">
+              <div className="flex justify-between items-center border-b border-green-900/50 pb-3">
+                <span className="text-xs text-green-700 uppercase tracking-wider">Payload Status</span>
+                <span className="text-xs text-green-400 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                  Encrypted
+                </span>
+              </div>
+              <p className="text-sm text-green-500/80 leading-relaxed">
+                Your clearance is insufficient. To decrypt this payload, you must submit to physical verification.
+              </p>
+            </div>
+          </div>
+
           <button 
             onClick={handleStart}
-            title="Begin the verification process"
-            className="w-full mt-4 px-8 py-4 border-2 border-green-500 hover:bg-green-500 hover:text-black transition-all duration-300 font-bold uppercase text-lg"
+            className="w-full py-4 border border-green-500/50 text-green-500 hover:bg-green-500 hover:text-black transition-all duration-300 uppercase tracking-[0.2em] text-sm font-bold rounded-sm"
           >
             Initialize Entry
           </button>
@@ -194,7 +229,7 @@ export default function App() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black text-green-500 font-mono flex flex-col lg:flex-row overflow-hidden scanlines">
+    <div className={`fixed inset-0 bg-black text-green-500 font-mono flex flex-col lg:flex-row overflow-hidden scanlines transition-colors duration-100 ${isGlitching ? 'animate-glitch bg-red-950/20 shadow-[inset_0_0_100px_rgba(220,38,38,0.5)]' : ''}`}>
       {/* Mobile-Only Sensor Bar (Visible when sidebar is hidden) */}
       <div className="lg:hidden shrink-0 flex justify-around items-center py-2 px-4 border-b border-green-900 bg-black/90 text-[10px] z-20">
         <div className="flex items-center gap-1" title="Current battery level">
@@ -229,12 +264,12 @@ export default function App() {
             <Cpu size={14} /> The Stack
           </div>
           <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar text-[10px] space-y-2 opacity-60">
-            {activeConstraints.length === 0 ? (
+            {activeRules.length === 0 ? (
               <div className="italic">Awaiting first rule...</div>
             ) : (
-              activeConstraints.map((constraint, idx) => (
+              activeRules.map((rule, idx) => (
                 <div key={idx} className="border border-green-900 p-2 uppercase flex items-center justify-between">
-                  <span>{constraint}</span>
+                  <span>{rule}</span>
                   <span className="text-green-500 animate-pulse">ACTIVE</span>
                 </div>
               ))
@@ -242,9 +277,9 @@ export default function App() {
           </div>
         </div>
         <div className="border-t border-green-900 pt-4">
-          <div className="text-[10px] text-green-800 mb-2">VERSION 3.1.0_PRO</div>
+          <div className="text-[10px] text-green-800 mb-2">VERSION 2.5.5</div>
           <div className="h-1 w-full bg-green-900">
-            <div className="h-full bg-green-500 shadow-[0_0_10px_green]" style={{width: `${Math.min(100, (activeConstraints.length / 15) * 100)}%`}}></div>
+            <div className="h-full bg-green-500 shadow-[0_0_10px_green]" style={{width: `${Math.min(100, (activeRules.length / 15) * 100)}%`}}></div>
           </div>
         </div>
       </aside>
